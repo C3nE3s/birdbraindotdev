@@ -4,10 +4,13 @@ import {
   type NextAuthOptions,
   type DefaultSession,
 } from "next-auth";
-import DiscordProvider from "next-auth/providers/discord";
+import TwitterProvider from "next-auth/providers/twitter";
+import type { TwitterProfile } from "next-auth/providers/twitter";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { env } from "../env.mjs";
 import { prisma } from "./db";
+
+type User = Pick<TwitterProfile["data"], 'id' | 'profile_image_url' | 'name' | 'username' | 'verified'>
 
 /**
  * Module augmentation for `next-auth` types.
@@ -18,18 +21,10 @@ import { prisma } from "./db";
  **/
 declare module "next-auth" {
   interface Session extends DefaultSession {
-    user: {
-      id: string;
-      // ...other properties
-      // role: UserRole;
-    } & DefaultSession["user"];
+    user: User
   }
-
-  // interface User {
-  //   // ...other properties
-  //   // role: UserRole;
-  // }
 }
+
 
 /**
  * Options for NextAuth.js used to configure adapters, providers, callbacks,
@@ -37,31 +32,42 @@ declare module "next-auth" {
  *
  * @see https://next-auth.js.org/configuration/options
  **/
+const TWITTER_PKCE_SCOPES = [
+  "tweet.read",
+  "users.read",
+  "bookmark.read",
+  "bookmark.write",
+  "offline.access",
+] as const;
+
 export const authOptions: NextAuthOptions = {
   callbacks: {
     session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
-        // session.user.role = user.role; <-- put other properties on the session here
       }
       return session;
     },
   },
   adapter: PrismaAdapter(prisma),
   providers: [
-    DiscordProvider({
-      clientId: env.DISCORD_CLIENT_ID,
-      clientSecret: env.DISCORD_CLIENT_SECRET,
-    }),
-    /**
-     * ...add more providers here
-     *
-     * Most other providers require a bit more work than the Discord provider.
-     * For example, the GitHub provider requires you to add the
-     * `refresh_token_expires_in` field to the Account model. Refer to the
-     * NextAuth.js docs for the provider you want to use. Example:
-     * @see https://next-auth.js.org/providers/github
-     **/
+    TwitterProvider({
+      clientId: env.TWITTER_CLIENT_ID,
+      clientSecret: env.TWITTER_CLIENT_SECRET,
+      version: "2.0",
+      profile({ data: { id, name, profile_image_url, username, verified } }: TwitterProfile) {
+        return {
+          id,
+          name,
+          profile_image_url,
+          username,
+          verified
+        } as User
+      },
+      authorization: {
+        params: { scope: TWITTER_PKCE_SCOPES.join(" ") },
+      },
+    })
   ],
 };
 
@@ -77,3 +83,4 @@ export const getServerAuthSession = (ctx: {
 }) => {
   return getServerSession(ctx.req, ctx.res, authOptions);
 };
+``
